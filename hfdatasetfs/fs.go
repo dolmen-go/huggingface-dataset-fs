@@ -194,6 +194,9 @@ func (fsys *datasetFS) Open(name string) (fs.File, error) {
 }
 
 func (fsys *datasetFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	// Implementation is similar to Open, but we just avoid sort of entries
+	// as they are already sorted in buildIndex.
+
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrInvalid}
 	}
@@ -202,25 +205,34 @@ func (fsys *datasetFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	}
 
 	nbSlash := strings.Count(name, "/")
+	var dir fs.ReadDirFile
+	var err error
 	switch nbSlash {
 	case 0:
 		if name == "." {
-			return (&root{dirEntry{fsys: fsys, name: "."}}).ReadDir(-1)
+			dir = (&root{dirEntry{fsys: fsys, name: "."}})
+		} else {
+			dir, err = fsys.openConfig(name)
 		}
-		dir, err := fsys.openConfig(name)
-		if err != nil {
-			return nil, err
-		}
-		return dir.ReadDir(-1)
 	case 1:
-		dir, err := fsys.openSplit(name)
+		dir, err = fsys.openSplit(name)
+	case 2:
+		f, err := fsys.openFile(name)
 		if err != nil {
 			return nil, err
 		}
-		return dir.ReadDir(-1)
+		f.Close()
+		// a file is never a directory
+		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrInvalid}
 	default:
 		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrNotExist}
 	}
+	if err != nil {
+		return nil, err
+	}
+	entries, err := dir.ReadDir(-1)
+	dir.Close()
+	return entries, err
 }
 
 // dirEntry is the common reprresentation of the root directory, a config directory, or a split directory
