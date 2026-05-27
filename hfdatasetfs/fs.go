@@ -236,7 +236,7 @@ func (fsys *datasetFS) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 // dirEntry is the common reprresentation of the root directory, a config directory, or a split directory
-// being opened.
+// being opened or listed.
 type dirEntry struct {
 	fsys    *datasetFS
 	name    string
@@ -250,38 +250,47 @@ var (
 	_ fs.ReadDirFile = (*dirEntry)(nil)
 )
 
+// Name implements [fs.DirEntry] and [fs.FileInfo].
 func (d *dirEntry) Name() string {
 	return d.name
 }
 
+// IsDir implements [fs.DirEntry] and [fs.FileInfo].
 func (d *dirEntry) IsDir() bool {
 	return true
 }
 
+// Mode implements [fs.FileInfo].
 func (d *dirEntry) Mode() fs.FileMode {
 	return fs.ModeDir | 0555
 }
 
+// Type implements [fs.DirEntry] and [fs.FileInfo].
 func (d *dirEntry) Type() fs.FileMode {
 	return fs.ModeDir
 }
 
+// Info implements [fs.DirEntry].
 func (d *dirEntry) Info() (fs.FileInfo, error) {
 	return d, nil
 }
 
+// Size implements [fs.FileInfo].
 func (d *dirEntry) Size() int64 {
 	return 0
 }
 
+// ModTime implements [fs.FileInfo].
 func (d *dirEntry) ModTime() time.Time {
 	return time.Time{}
 }
 
+// Sys implements [fs.FileInfo].
 func (d *dirEntry) Sys() any {
 	return nil
 }
 
+// Stat implements [fs.File].
 func (d *dirEntry) Stat() (fs.FileInfo, error) {
 	if d.fsys == nil {
 		return nil, fs.ErrClosed
@@ -289,6 +298,7 @@ func (d *dirEntry) Stat() (fs.FileInfo, error) {
 	return d, nil
 }
 
+// Read implements [fs.File] and always returns an error as directories cannot be read.
 func (*dirEntry) Read([]byte) (n int, err error) {
 	return 0, fs.ErrInvalid
 }
@@ -317,6 +327,7 @@ func (d *dirEntry) ReadDir(n int) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
+// Close implements [fs.File].
 func (d *dirEntry) Close() error {
 	if d.fsys == nil {
 		return fs.ErrClosed
@@ -326,10 +337,19 @@ func (d *dirEntry) Close() error {
 	return nil
 }
 
+// root represents the root directory of the dataset, which lists the config directories.
 type root struct {
 	dirEntry
 }
 
+var (
+	_ fs.File        = (*root)(nil)
+	_ fs.ReadDirFile = (*root)(nil)
+	_ fs.FileInfo    = (*root)(nil)
+	_ fs.DirEntry    = (*root)(nil)
+)
+
+// ReadDir implements [fs.ReadDirFile] for the root directory, which lists the config directories.
 func (r *root) ReadDir(n int) ([]fs.DirEntry, error) {
 	if r.dirEntry.fsys == nil {
 		return nil, fs.ErrClosed
@@ -357,6 +377,7 @@ func (r *root) ReadDir(n int) ([]fs.DirEntry, error) {
 	return r.dirEntry.ReadDir(n)
 }
 
+// configEntry represents a config directory, which lists the split directories.
 type configEntry struct {
 	dirEntry
 }
