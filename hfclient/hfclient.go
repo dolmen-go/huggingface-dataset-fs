@@ -50,10 +50,15 @@ type Options struct {
 }
 
 func (c *Client) HTTPClient(_ context.Context) (*http.Client, error) {
+	auth := ""
+	if c.credentials != "" {
+		auth = "Bearer " + c.credentials
+	}
+
 	client := *http.DefaultClient
 	client.Transport = &transport{
 		baseTransport:     http.DefaultTransport,
-		credentialsBearer: "Bearer " + c.credentials,
+		credentialsBearer: auth,
 		logger:            c.logger.WithGroup("http").With(slog.String("component", "transport")),
 	}
 	return &client, nil
