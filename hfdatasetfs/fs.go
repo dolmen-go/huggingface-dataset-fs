@@ -285,7 +285,14 @@ func (d *dirEntry) ReadDir(n int) ([]fs.DirEntry, error) {
 	if d.fsys == nil {
 		return nil, fs.ErrClosed
 	}
-	if n <= 0 || n > len(d.entries) {
+	if n <= 0 {
+		// ReadDir(-1) must not advance the position, so we return all entries without modifying d.entries.
+		return d.entries, nil
+	}
+	if len(d.entries) == 0 {
+		return nil, io.EOF
+	}
+	if n > len(d.entries) {
 		n = len(d.entries)
 	}
 	entries := d.entries[:n]
