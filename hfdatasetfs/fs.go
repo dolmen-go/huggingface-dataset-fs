@@ -259,11 +259,11 @@ func (d *dirEntry) IsDir() bool {
 }
 
 func (d *dirEntry) Mode() fs.FileMode {
-	return fs.ModeDir
+	return fs.ModeDir | 0555
 }
 
 func (d *dirEntry) Type() fs.FileMode {
-	return fs.ModeDir | 0555
+	return fs.ModeDir
 }
 
 func (d *dirEntry) Info() (fs.FileInfo, error) {
