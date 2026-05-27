@@ -293,13 +293,15 @@ func (*dirEntry) Read([]byte) (n int, err error) {
 	return 0, fs.ErrInvalid
 }
 
+// ReadDir implements [fs.ReadDirFile] and returns the entries of the directory.
 func (d *dirEntry) ReadDir(n int) ([]fs.DirEntry, error) {
 	if d.fsys == nil {
 		return nil, fs.ErrClosed
 	}
 	if n <= 0 {
-		// ReadDir(-1) must not advance the position, so we return all entries without modifying d.entries.
-		return d.entries, nil
+		entries := d.entries
+		d.entries = []fs.DirEntry{} // avoid returning the same entries again
+		return entries, nil
 	}
 	if len(d.entries) == 0 {
 		return nil, io.EOF
@@ -309,6 +311,9 @@ func (d *dirEntry) ReadDir(n int) ([]fs.DirEntry, error) {
 	}
 	entries := d.entries[:n]
 	d.entries = d.entries[n:]
+	if len(d.entries) == 0 {
+		return entries, io.EOF
+	}
 	return entries, nil
 }
 
