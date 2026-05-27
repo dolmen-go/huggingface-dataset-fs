@@ -24,12 +24,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"testing/fstest"
 
 	"github.com/dolmen-go/huggingface-dataset-fs/hfclient"
 )
 
 func TestWalkMock(t *testing.T) {
 
+	var serverURL string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/parquet", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("dataset") != "org/dataset" {
@@ -38,13 +40,17 @@ func TestWalkMock(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"parquet_files":[
-		{"config":"default","split":"train","url":"https://huggingface.co/datasets/org/dataset/resolve/refs%2Fconvert%2Fparquet/default/train/0000.parquet","filename":"0000.parquet","size":12}
+		{"config":"default","split":"train","url":"`+serverURL+`/datasets/org/dataset/resolve/refs%2Fconvert%2Fparquet/default/train/0000.parquet","filename":"0000.parquet","size":12},
+		{"config":"default","split":"train","url":"`+serverURL+`/datasets/org/dataset/resolve/refs%2Fconvert%2Fparquet/default/train/0001.parquet","filename":"0001.parquet","size":12}
 ]}`)
 	})
-	mux.HandleFunc("/datasets/org/dataset/resolve/refs%2Fconvert%2Fparquet/default/train/0000.parquet", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/datasets/org/dataset/resolve/refs%2Fconvert%2Fparquet/{config}/{split}/{filename}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		io.WriteString(w, "PAR1\x00\x00\x00\x00PAR1") // minimal valid Parquet file
 	})
 	ts := httptest.NewServer(mux)
 	t.Cleanup(func() { ts.Close() })
+	serverURL = ts.URL
 
 	backupDefaultClient := http.DefaultClient
 	t.Cleanup(func() { http.DefaultClient = backupDefaultClient })
@@ -61,6 +67,10 @@ func TestWalkMock(t *testing.T) {
 	}
 
 	testWalk(t, client, "org/dataset", ts.URL)
+
+	if err := fstest.TestFS(New(client, "org/dataset", &Options{BaseURL: ts.URL}), "default/train/0000.parquet"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestWalkReal(t *testing.T) {
