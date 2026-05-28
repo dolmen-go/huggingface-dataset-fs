@@ -49,6 +49,9 @@ type Options struct {
 //
 // Credentials for accessing private datasets should be handled by the HTTP client, for example using the [hfclient.Client] and its [hfclient.Client.HTTPClient] method.
 func New(client *http.Client, dataset string, opts *Options) fs.FS {
+	if opts == nil {
+		opts = &Options{}
+	}
 	fsys := &datasetFS{
 		httpClient: client,
 		baseURL:    opts.BaseURL,
