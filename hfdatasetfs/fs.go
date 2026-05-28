@@ -206,7 +206,7 @@ func (fsys *datasetFS) Open(name string) (fs.File, error) {
 	switch nbSlash {
 	case 0:
 		if name == "." {
-			return &root{dirEntry{fsys: fsys, name: "."}}, nil
+			return &root{dirRead{fsys: fsys, name: "."}}, nil
 		}
 		return fsys.openConfig(name)
 	case 1:
@@ -238,76 +238,78 @@ func (fsys *datasetFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	return dir.ReadDir(-1)
 }
 
-// dirEntry is the common reprresentation of the root directory, a config directory, or a split directory
+// dirRead is the common reprresentation of the root directory, a config directory, or a split directory
 // being opened or listed.
-type dirEntry struct {
+type dirRead struct {
 	fsys    *datasetFS
 	name    string
 	entries []fs.DirEntry
 }
 
+type dirInfo string
+
 var (
-	_ fs.FileInfo    = (*dirEntry)(nil)
-	_ fs.DirEntry    = (*dirEntry)(nil)
-	_ fs.File        = (*dirEntry)(nil)
-	_ fs.ReadDirFile = (*dirEntry)(nil)
+	_ fs.FileInfo    = dirInfo("")
+	_ fs.DirEntry    = dirInfo("")
+	_ fs.File        = (*dirRead)(nil)
+	_ fs.ReadDirFile = (*dirRead)(nil)
 )
 
 // Name implements [fs.DirEntry] and [fs.FileInfo].
-func (d *dirEntry) Name() string {
-	return d.name
+func (d dirInfo) Name() string {
+	return string(d)
 }
 
 // IsDir implements [fs.DirEntry] and [fs.FileInfo].
-func (d *dirEntry) IsDir() bool {
+func (d dirInfo) IsDir() bool {
 	return true
 }
 
 // Mode implements [fs.FileInfo].
-func (d *dirEntry) Mode() fs.FileMode {
+func (d dirInfo) Mode() fs.FileMode {
 	return fs.ModeDir | 0555
 }
 
 // Type implements [fs.DirEntry] and [fs.FileInfo].
-func (d *dirEntry) Type() fs.FileMode {
+func (d dirInfo) Type() fs.FileMode {
 	return fs.ModeDir
 }
 
 // Info implements [fs.DirEntry].
-func (d *dirEntry) Info() (fs.FileInfo, error) {
+func (d dirInfo) Info() (fs.FileInfo, error) {
 	return d, nil
 }
 
 // Size implements [fs.FileInfo].
-func (d *dirEntry) Size() int64 {
+func (d dirInfo) Size() int64 {
 	return 0
 }
 
 // ModTime implements [fs.FileInfo].
-func (d *dirEntry) ModTime() time.Time {
+func (d dirInfo) ModTime() time.Time {
 	return time.Time{}
 }
 
 // Sys implements [fs.FileInfo].
-func (d *dirEntry) Sys() any {
+func (d dirInfo) Sys() any {
 	return nil
 }
 
 // Stat implements [fs.File].
-func (d *dirEntry) Stat() (fs.FileInfo, error) {
+func (d *dirRead) Stat() (fs.FileInfo, error) {
 	if d.fsys == nil {
 		return nil, fs.ErrClosed
 	}
-	return d, nil
+	return dirInfo(d.name), nil
 }
 
 // Read implements [fs.File] and always returns an error as directories cannot be read.
-func (*dirEntry) Read([]byte) (n int, err error) {
+func (*dirRead) Read([]byte) (n int, err error) {
 	return 0, fs.ErrInvalid
 }
 
 // ReadDir implements [fs.ReadDirFile] and returns the entries of the directory.
-func (d *dirEntry) ReadDir(n int) ([]fs.DirEntry, error) {
+func (d *dirRead) ReadDir(n int) ([]fs.DirEntry, error) {
 	if d.fsys == nil {
 		return nil, fs.ErrClosed
 	}
@@ -331,7 +333,7 @@ func (d *dirEntry) ReadDir(n int) ([]fs.DirEntry, error) {
 }
 
 // Close implements [fs.File].
-func (d *dirEntry) Close() error {
+func (d *dirRead) Close() error {
 	if d.fsys == nil {
 		return fs.ErrClosed
 	}
@@ -342,71 +344,57 @@ func (d *dirEntry) Close() error {
 
 // root represents the root directory of the dataset, which lists the config directories.
 type root struct {
-	dirEntry
+	dirRead
 }
 
 var (
 	_ fs.File        = (*root)(nil)
 	_ fs.ReadDirFile = (*root)(nil)
-	_ fs.FileInfo    = (*root)(nil)
-	_ fs.DirEntry    = (*root)(nil)
 )
 
 // ReadDir implements [fs.ReadDirFile] for the root directory, which lists the config directories.
 func (r *root) ReadDir(n int) ([]fs.DirEntry, error) {
-	if r.dirEntry.fsys == nil {
+	if r.dirRead.fsys == nil {
 		return nil, fs.ErrClosed
 	}
-	if r.dirEntry.entries == nil {
+	if r.dirRead.entries == nil {
 		var configs []fs.DirEntry
 		lastConfig := ""
 		for i := range r.fsys.dirs {
 			p := r.fsys.dirs[i]
 			configName, _, _ := strings.Cut(p.path, "/")
 			if configName != lastConfig {
-				configs = append(configs,
-					&configEntry{
-						dirEntry: dirEntry{
-							fsys:    r.fsys,
-							name:    configName,
-							entries: nil,
-						},
-					})
+				configs = append(configs, dirInfo(configName))
 				lastConfig = configName
 			}
 		}
-		r.dirEntry.entries = configs
+		r.dirRead.entries = configs
 	}
-	return r.dirEntry.ReadDir(n)
+	return r.dirRead.ReadDir(n)
 }
 
 // configEntry represents a config directory, which lists the split directories.
 type configEntry struct {
-	dirEntry
+	dirRead
 }
 
 func (dc *configEntry) ReadDir(n int) ([]fs.DirEntry, error) {
-	if dc.dirEntry.fsys == nil {
+	if dc.dirRead.fsys == nil {
 		return nil, fs.ErrClosed
 	}
-	if dc.dirEntry.entries == nil {
+	if dc.dirRead.entries == nil {
 		var entries []fs.DirEntry
 		dirSlash := dc.name + "/"
-		allSplits := dc.dirEntry.fsys.dirs
+		lenDirSlash := len(dirSlash)
+		allSplits := dc.dirRead.fsys.dirs
 		for i := range allSplits {
 			if strings.HasPrefix(allSplits[i].path, dirSlash) {
-				entries = append(entries,
-					&dirEntry{
-						fsys:    dc.fsys,
-						name:    strings.TrimPrefix(allSplits[i].path, dirSlash),
-						entries: allSplits[i].entries,
-					},
-				)
+				entries = append(entries, dirInfo(allSplits[i].path[lenDirSlash:]))
 			}
 		}
-		dc.dirEntry.entries = entries
+		dc.dirRead.entries = entries
 	}
-	return dc.dirEntry.ReadDir(n)
+	return dc.dirRead.ReadDir(n)
 }
 
 func (fsys *datasetFS) openConfig(name string) (*configEntry, error) {
@@ -426,7 +414,7 @@ func (fsys *datasetFS) openConfig(name string) (*configEntry, error) {
 	}
 
 	return &configEntry{
-		dirEntry: dirEntry{
+		dirRead: dirRead{
 			fsys:    fsys,
 			name:    name,
 			entries: nil,
@@ -434,7 +422,7 @@ func (fsys *datasetFS) openConfig(name string) (*configEntry, error) {
 	}, nil
 }
 
-func (fsys *datasetFS) openSplit(name string) (*dirEntry, error) {
+func (fsys *datasetFS) openSplit(name string) (*dirRead, error) {
 	i, found := slices.BinarySearchFunc(fsys.dirs, name, func(d dir, name string) int {
 		return cmp.Compare(d.path, name)
 	})
@@ -444,7 +432,7 @@ func (fsys *datasetFS) openSplit(name string) (*dirEntry, error) {
 
 	_, name, _ = strings.Cut(name, "/")
 
-	return &dirEntry{
+	return &dirRead{
 		fsys:    fsys,
 		name:    name,
 		entries: fsys.dirs[i].entries,
