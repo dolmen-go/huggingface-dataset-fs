@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package hfdatasetfs implements a read-only [fs.FS] for remote Hugging Face datasets in Parquet format.
 package hfdatasetfs
 
 import (
@@ -32,15 +33,19 @@ type datasetFS struct {
 	client  *http.Client
 	baseURL string
 	dataset string
-	err     error
-	files   []fs.DirEntry
-	dirs    []dir
+	err     error // error encountered during initialization, which will be returned by all methods
+
+	files []fs.DirEntry // backed by *fileinfo
+	dirs  []dir
 }
 
 type Options struct {
 	BaseURL string
 }
 
+// New creates a new datasetFS for the given dataset, using the provided HTTP client and options.
+//
+// Credentials for accessing private datasets should be handled by the HTTP client, for example using the [hfclient.Client] and its [hfclient.Client.HTTPClient] method.
 func New(client *http.Client, dataset string, opts *Options) fs.FS {
 	fsys := &datasetFS{
 		client:  client,
@@ -91,6 +96,8 @@ type parquetFile struct {
 	Size     int64  `json:"size"`
 }
 
+// fileinfo implements [fs.FileInfo] and [fs.DirEntry] for representing a parquet file
+// in the filesystem index.
 type fileinfo struct {
 	name     string
 	splitDir string
@@ -98,34 +105,48 @@ type fileinfo struct {
 	url      string
 }
 
+var (
+	_ fs.FileInfo = (*fileinfo)(nil)
+	_ fs.DirEntry = (*fileinfo)(nil)
+)
+
+// Info implements [fs.DirEntry].
 func (f *fileinfo) Info() (fs.FileInfo, error) {
 	return f, nil
 }
 
+// Name implements [fs.FileInfo] and [fs.DirEntry].
 func (f *fileinfo) Name() string {
 	return f.name
 }
 
+// Size implements [fs.FileInfo].
 func (f *fileinfo) Size() int64 {
 	return f.size
 }
 
+// Mode implements [fs.FileInfo].
 func (f *fileinfo) Mode() fs.FileMode {
 	return 0444
 }
 
+// Type implements [fs.DirEntry] and [fs.FileInfo].
 func (f *fileinfo) Type() fs.FileMode {
 	return 0
 }
 
+// ModTime implements [fs.FileInfo].
 func (f *fileinfo) ModTime() time.Time {
 	return time.Time{}
 }
 
+// IsDir implements [fs.DirEntry] and [fs.FileInfo].
 func (f *fileinfo) IsDir() bool {
 	return false
 }
 
+// Sys implements [fs.FileInfo].
+// We use it to expose the URL of the parquet file.
 func (f *fileinfo) Sys() any {
 	return f.url
 }
@@ -169,6 +190,10 @@ func (fsys *datasetFS) buildIndex(parquetFiles []*parquetFile) {
 	fsys.dirs = dirs
 }
 
+// Open implements [fs.FS]. It supports three levels of paths:
+// - "config": lists the splits available for the config
+// - "config/split": lists the parquet files available for the config and split
+// - "config/split/filename": opens the parquet file for reading
 func (fsys *datasetFS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
@@ -193,46 +218,24 @@ func (fsys *datasetFS) Open(name string) (fs.File, error) {
 	}
 }
 
+// ReadDir implements [fs.ReadDirFS] for the datasetFS, which allows listing directories in the filesystem.
 func (fsys *datasetFS) ReadDir(name string) ([]fs.DirEntry, error) {
-	// Implementation is similar to Open, but we just avoid sort of entries
-	// as they are already sorted in buildIndex.
+	// Our implementation of ReadDir is just a wrapper around Open + ReadDir, which is simpler to implement and test.
+	// Compared to [fs.ReadDir] it just avoids sorting entries as they are already sorted by the buildIndex method.
 
-	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrInvalid}
-	}
-	if fsys.err != nil {
-		return nil, fsys.err
-	}
-
-	nbSlash := strings.Count(name, "/")
-	var dir fs.ReadDirFile
-	var err error
-	switch nbSlash {
-	case 0:
-		if name == "." {
-			dir = (&root{dirEntry{fsys: fsys, name: "."}})
-		} else {
-			dir, err = fsys.openConfig(name)
-		}
-	case 1:
-		dir, err = fsys.openSplit(name)
-	case 2:
-		f, err := fsys.openFile(name)
-		if err != nil {
-			return nil, err
-		}
-		f.Close()
-		// a file is never a directory
-		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrInvalid}
-	default:
-		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrNotExist}
-	}
+	f, err := fsys.Open(name)
 	if err != nil {
+		if pe, ok := err.(*fs.PathError); ok {
+			pe.Op = "readdir"
+		}
 		return nil, err
 	}
-	entries, err := dir.ReadDir(-1)
-	dir.Close()
-	return entries, err
+	defer f.Close()
+	dir, ok := f.(fs.ReadDirFile)
+	if !ok {
+		return nil, &fs.PathError{Op: "readdir", Path: name, Err: errors.New("not a directory")}
+	}
+	return dir.ReadDir(-1)
 }
 
 // dirEntry is the common reprresentation of the root directory, a config directory, or a split directory
