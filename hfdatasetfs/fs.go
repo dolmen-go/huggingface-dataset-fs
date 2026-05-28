@@ -37,8 +37,8 @@ type datasetFS struct {
 
 	err error // error encountered during initialization, which will be returned by all methods
 
-	files []fileinfo
-	dirs  []dir
+	files     []fileinfo
+	splitDirs []splitDir
 }
 
 type Options struct {
@@ -159,9 +159,10 @@ func (f *fileinfo) Sys() any {
 	return f.url
 }
 
-type dir struct {
-	path    string
-	entries []fs.DirEntry
+// splitDir represents a directory for a specific config and split, containing the list of parquet files in that split.
+type splitDir struct {
+	path    string        // "config/split"
+	entries []fs.DirEntry // list of parquet files in the split, sorted by name
 }
 
 func (fsys *datasetFS) buildIndex(parquetFiles []*parquetFile) {
@@ -171,33 +172,33 @@ func (fsys *datasetFS) buildIndex(parquetFiles []*parquetFile) {
 
 	fileEntries := make([]fs.DirEntry, len(parquetFiles))
 	files := make([]fileinfo, len(parquetFiles))
-	var dirs []dir
+	var splitDirs []splitDir
 	lastDir := ""
 	startDir := 0
 	for i, pf := range parquetFiles {
-		splitDir := pf.Config + "/" + pf.Split
 		// FIXME reject '/' in config or split names
+		d := pf.Config + "/" + pf.Split
 		files[i] = fileinfo{
-			path: splitDir + "/" + pf.Filename,
+			path: d + "/" + pf.Filename,
 			name: pf.Filename,
 			size: pf.Size,
 			url:  pf.URL,
 		}
 		fileEntries[i] = &files[i]
-		if splitDir != lastDir {
+		if d != lastDir {
 			if i > 0 {
-				dirs[len(dirs)-1].entries = fileEntries[startDir:i:i]
+				splitDirs[len(splitDirs)-1].entries = fileEntries[startDir:i:i]
 			}
-			dirs = append(dirs, dir{path: splitDir})
-			lastDir = splitDir
+			splitDirs = append(splitDirs, splitDir{path: d})
+			lastDir = d
 			startDir = i
 		}
 	}
-	if len(dirs) > 0 {
-		dirs[len(dirs)-1].entries = fileEntries[startDir:len(files):len(files)]
+	if len(splitDirs) > 0 {
+		splitDirs[len(splitDirs)-1].entries = fileEntries[startDir:len(files):len(files)]
 	}
 	fsys.files = files
-	fsys.dirs = dirs
+	fsys.splitDirs = splitDirs
 }
 
 // Open implements [fs.FS]. It supports three levels of paths:
@@ -370,8 +371,8 @@ func (r *root) ReadDir(n int) ([]fs.DirEntry, error) {
 	if r.dirRead.entries == nil {
 		var configs []fs.DirEntry
 		lastConfig := ""
-		for i := range r.fsys.dirs {
-			p := r.fsys.dirs[i]
+		for i := range r.fsys.splitDirs {
+			p := r.fsys.splitDirs[i]
 			configName, _, _ := strings.Cut(p.path, "/")
 			if configName != lastConfig {
 				configs = append(configs, dirInfo(configName))
@@ -396,7 +397,7 @@ func (dc *configEntry) ReadDir(n int) ([]fs.DirEntry, error) {
 		var entries []fs.DirEntry
 		dirSlash := dc.name + "/"
 		lenDirSlash := len(dirSlash)
-		allSplits := dc.dirRead.fsys.dirs
+		allSplits := dc.dirRead.fsys.splitDirs
 		for i := range allSplits {
 			p := allSplits[i].path
 			if strings.HasPrefix(p, dirSlash) {
@@ -410,7 +411,7 @@ func (dc *configEntry) ReadDir(n int) ([]fs.DirEntry, error) {
 
 func (fsys *datasetFS) openConfig(name string) (*configEntry, error) {
 	configSlash := name + "/"
-	_, found := slices.BinarySearchFunc(fsys.dirs, configSlash, func(d dir, configSlash string) int {
+	_, found := slices.BinarySearchFunc(fsys.splitDirs, configSlash, func(d splitDir, configSlash string) int {
 		diff := cmp.Compare(d.path, configSlash)
 		if diff < 0 {
 			return -1
@@ -434,7 +435,7 @@ func (fsys *datasetFS) openConfig(name string) (*configEntry, error) {
 }
 
 func (fsys *datasetFS) openSplit(name string) (*dirRead, error) {
-	i, found := slices.BinarySearchFunc(fsys.dirs, name, func(d dir, name string) int {
+	i, found := slices.BinarySearchFunc(fsys.splitDirs, name, func(d splitDir, name string) int {
 		return cmp.Compare(d.path, name)
 	})
 	if !found {
@@ -446,7 +447,7 @@ func (fsys *datasetFS) openSplit(name string) (*dirRead, error) {
 	return &dirRead{
 		fsys:    fsys,
 		name:    name,
-		entries: fsys.dirs[i].entries,
+		entries: fsys.splitDirs[i].entries,
 	}, nil
 }
 
