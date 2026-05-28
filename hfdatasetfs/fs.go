@@ -31,10 +31,11 @@ import (
 )
 
 type datasetFS struct {
-	client  *http.Client
-	baseURL string
-	dataset string
-	err     error // error encountered during initialization, which will be returned by all methods
+	httpClient *http.Client
+	baseURL    string
+	dataset    string
+
+	err error // error encountered during initialization, which will be returned by all methods
 
 	files []fs.DirEntry // backed by *fileinfo
 	dirs  []dir
@@ -49,9 +50,9 @@ type Options struct {
 // Credentials for accessing private datasets should be handled by the HTTP client, for example using the [hfclient.Client] and its [hfclient.Client.HTTPClient] method.
 func New(client *http.Client, dataset string, opts *Options) fs.FS {
 	fsys := &datasetFS{
-		client:  client,
-		baseURL: opts.BaseURL,
-		dataset: dataset,
+		httpClient: client,
+		baseURL:    opts.BaseURL,
+		dataset:    dataset,
 	}
 	org, ds, ok := strings.Cut(dataset, "/")
 	if !ok || org == "" || ds == "" || url.PathEscape(org) != org || url.PathEscape(ds) != ds {
@@ -491,7 +492,7 @@ func (f *file) Read(p []byte) (n int, err error) {
 		return 0, fs.ErrClosed
 	}
 	if f.r == nil {
-		resp, err := f.fsys.client.Get(f.info.url)
+		resp, err := f.fsys.httpClient.Get(f.info.url)
 		if err != nil {
 			return 0, err
 		}
