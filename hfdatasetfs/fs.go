@@ -240,7 +240,7 @@ func (fsys *datasetFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	defer f.Close()
 	dir, ok := f.(fs.ReadDirFile)
 	if !ok {
-		return nil, &fs.PathError{Op: "readdir", Path: name, Err: errors.New("not a directory")}
+		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrInvalid}
 	}
 	return dir.ReadDir(-1)
 }
