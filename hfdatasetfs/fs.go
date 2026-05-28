@@ -24,6 +24,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -52,11 +53,17 @@ func New(client *http.Client, dataset string, opts *Options) fs.FS {
 		baseURL: opts.BaseURL,
 		dataset: dataset,
 	}
+	org, ds, ok := strings.Cut(dataset, "/")
+	if !ok || org == "" || ds == "" || url.PathEscape(org) != org || url.PathEscape(ds) != ds {
+		fsys.err = &fs.PathError{Op: "init", Path: dataset, Err: errors.New("dataset name must be in the format 'org/dataset'")}
+		return fsys
+	}
+
 	if fsys.baseURL == "" {
 		fsys.baseURL = "https://datasets-server.huggingface.co"
 	}
 
-	resp, err := client.Get(fsys.baseURL + "/parquet?dataset=" + dataset)
+	resp, err := client.Get(fsys.baseURL + "/parquet?dataset=" + fsys.dataset)
 	if err != nil {
 		fsys.err = &fs.PathError{Op: "init", Path: ".", Err: err}
 		return fsys
