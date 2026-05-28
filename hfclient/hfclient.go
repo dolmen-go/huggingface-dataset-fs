@@ -33,14 +33,14 @@ type Client struct {
 	logger      *slog.Logger
 }
 
-func NewClient(opts Options) *Client {
-	if opts.Token == "" {
-		opts.Token = os.Getenv("HF_TOKEN")
+func NewClient(opts *Options) *Client {
+	c := &Client{}
+	if opts != nil {
+		c.credentials = opts.Token
+		c.logger = opts.Logger
 	}
-
-	c := &Client{
-		credentials: opts.Token,
-		logger:      opts.Logger,
+	if c.credentials == "" {
+		c.credentials = os.Getenv("HF_TOKEN")
 	}
 	if c.logger == nil {
 		c.logger = slog.Default()

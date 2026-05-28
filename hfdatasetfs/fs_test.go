@@ -56,7 +56,7 @@ func TestWalkMock(t *testing.T) {
 	t.Cleanup(func() { http.DefaultClient = backupDefaultClient })
 	http.DefaultClient = ts.Client()
 
-	client, err := hfclient.NewClient(hfclient.Options{
+	client, err := hfclient.NewClient(&hfclient.Options{
 		Token: "test-token",
 		Logger: slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelDebug})).
 			WithGroup("hfclient").
@@ -81,7 +81,7 @@ func TestWalkReal(t *testing.T) {
 		t.Skip("HF_TOKEN environment variable not set")
 	}
 
-	client, err := hfclient.NewClient(hfclient.Options{
+	client, err := hfclient.NewClient(&hfclient.Options{
 		Logger: slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelDebug})).
 			WithGroup("hfclient").
 			With(slog.String("test", t.Name())),
