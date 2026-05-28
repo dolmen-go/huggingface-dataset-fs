@@ -37,7 +37,7 @@ type datasetFS struct {
 
 	err error // error encountered during initialization, which will be returned by all methods
 
-	files []fs.DirEntry // backed by *fileinfo
+	files []fileinfo
 	dirs  []dir
 }
 
@@ -169,22 +169,24 @@ func (fsys *datasetFS) buildIndex(parquetFiles []*parquetFile) {
 		return cmp.Compare(p.URL, q.URL)
 	})
 
-	files := make([]fs.DirEntry, len(parquetFiles))
+	fileEntries := make([]fs.DirEntry, len(parquetFiles))
+	files := make([]fileinfo, len(parquetFiles))
 	var dirs []dir
 	lastDir := ""
 	startDir := 0
 	for i, pf := range parquetFiles {
 		splitDir := pf.Config + "/" + pf.Split
 		// FIXME reject '/' in config or split names
-		files[i] = &fileinfo{
+		files[i] = fileinfo{
 			path: splitDir + "/" + pf.Filename,
 			name: pf.Filename,
 			size: pf.Size,
 			url:  pf.URL,
 		}
+		fileEntries[i] = &files[i]
 		if splitDir != lastDir {
 			if i > 0 {
-				dirs[len(dirs)-1].entries = files[startDir:i:i]
+				dirs[len(dirs)-1].entries = fileEntries[startDir:i:i]
 			}
 			dirs = append(dirs, dir{path: splitDir})
 			lastDir = splitDir
@@ -192,7 +194,7 @@ func (fsys *datasetFS) buildIndex(parquetFiles []*parquetFile) {
 		}
 	}
 	if len(dirs) > 0 {
-		dirs[len(dirs)-1].entries = files[startDir:len(files):len(files)]
+		dirs[len(dirs)-1].entries = fileEntries[startDir:len(files):len(files)]
 	}
 	fsys.files = files
 	fsys.dirs = dirs
@@ -396,8 +398,9 @@ func (dc *configEntry) ReadDir(n int) ([]fs.DirEntry, error) {
 		lenDirSlash := len(dirSlash)
 		allSplits := dc.dirRead.fsys.dirs
 		for i := range allSplits {
-			if strings.HasPrefix(allSplits[i].path, dirSlash) {
-				entries = append(entries, dirInfo(allSplits[i].path[lenDirSlash:]))
+			p := allSplits[i].path
+			if strings.HasPrefix(p, dirSlash) {
+				entries = append(entries, dirInfo(p[lenDirSlash:]))
 			}
 		}
 		dc.dirRead.entries = entries
@@ -448,8 +451,8 @@ func (fsys *datasetFS) openSplit(name string) (*dirRead, error) {
 }
 
 func (fsys *datasetFS) openFile(name string) (fs.File, error) {
-	i, found := slices.BinarySearchFunc(fsys.files, name, func(de fs.DirEntry, name string) int {
-		return cmp.Compare(de.(*fileinfo).path, name)
+	i, found := slices.BinarySearchFunc(fsys.files, name, func(fi fileinfo, name string) int {
+		return cmp.Compare(fi.path, name)
 	})
 	if !found {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
@@ -457,7 +460,7 @@ func (fsys *datasetFS) openFile(name string) (fs.File, error) {
 
 	return &file{
 		fsys: fsys,
-		info: fsys.files[i].(*fileinfo),
+		info: &fsys.files[i],
 	}, nil
 }
 
