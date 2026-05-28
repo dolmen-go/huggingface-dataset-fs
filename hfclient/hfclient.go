@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package hfclient provides a simple HTTP client wrapper for interacting with Hugging Face services.
+//
+// Authentication is handled via API token from HF_TOKEN environment variable.
+// Logging is handled via [log/slog].
 package hfclient
 
 import (
