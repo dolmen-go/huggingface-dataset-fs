@@ -99,10 +99,10 @@ type parquetFile struct {
 // fileinfo implements [fs.FileInfo] and [fs.DirEntry] for representing a parquet file
 // in the filesystem index.
 type fileinfo struct {
-	name     string
-	splitDir string
-	size     int64
-	url      string
+	path string
+	name string
+	size int64
+	url  string
 }
 
 var (
@@ -166,20 +166,20 @@ func (fsys *datasetFS) buildIndex(parquetFiles []*parquetFile) {
 	lastDir := ""
 	startDir := 0
 	for i, pf := range parquetFiles {
-		dirPath := pf.Config + "/" + pf.Split
+		splitDir := pf.Config + "/" + pf.Split
 		// FIXME reject '/' in config or split names
 		files[i] = &fileinfo{
-			name:     pf.Filename,
-			splitDir: dirPath,
-			size:     pf.Size,
-			url:      pf.URL,
+			path: splitDir + "/" + pf.Filename,
+			name: pf.Filename,
+			size: pf.Size,
+			url:  pf.URL,
 		}
-		if dirPath != lastDir {
+		if splitDir != lastDir {
 			if i > 0 {
 				dirs[len(dirs)-1].entries = files[startDir:i:i]
 			}
-			dirs = append(dirs, dir{path: dirPath})
-			lastDir = dirPath
+			dirs = append(dirs, dir{path: splitDir})
+			lastDir = splitDir
 			startDir = i
 		}
 	}
@@ -452,15 +452,8 @@ func (fsys *datasetFS) openSplit(name string) (*dirEntry, error) {
 }
 
 func (fsys *datasetFS) openFile(name string) (fs.File, error) {
-	p := strings.LastIndex(name, "/")
-	splitDir := name[:p]
-	filename := name[p+1:]
-	i, found := slices.BinarySearchFunc(fsys.files, splitDir, func(de fs.DirEntry, splitDir string) int {
-		diff := cmp.Compare(de.(*fileinfo).splitDir, splitDir)
-		if diff != 0 {
-			return diff
-		}
-		return cmp.Compare(de.(*fileinfo).name, filename)
+	i, found := slices.BinarySearchFunc(fsys.files, name, func(de fs.DirEntry, name string) int {
+		return cmp.Compare(de.(*fileinfo).path, name)
 	})
 	if !found {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
