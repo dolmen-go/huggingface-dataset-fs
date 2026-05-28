@@ -68,7 +68,10 @@ func TestWalkMock(t *testing.T) {
 
 	testWalk(t, client, "org/dataset", ts.URL)
 
-	if err := fstest.TestFS(New(client, "org/dataset", &Options{BaseURL: ts.URL}), "default/train/0000.parquet"); err != nil {
+	if err := fstest.TestFS(New(client, "org/dataset", &Options{BaseURL: ts.URL}),
+		"default/train/0000.parquet",
+		"default/train/0001.parquet",
+	); err != nil {
 		t.Fatal(err)
 	}
 }
